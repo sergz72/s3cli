@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.31"
-s3cli_lib = { git = "https://github.com/sergz72/s3cli_lib.git"}
+s3cli_lib = { path = "../s3cli_lib"}
