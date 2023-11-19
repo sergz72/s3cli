@@ -1,6 +1,6 @@
 use std::env::args;
 use std::fs::File;
-use std::io::{Error, ErrorKind, Read, Write};
+use std::io::{Error, ErrorKind, Read, stdin, Write};
 use s3cli_lib::{build_key_info, KeyInfo};
 use s3cli_lib::azure::build_azure_key_info;
 
@@ -49,9 +49,13 @@ fn main() -> Result<(), Error> {
 }
 
 fn load_file(file_name: &String) -> Result<Vec<u8>, Error> {
-    let mut f = File::open(file_name)?;
     let mut data = Vec::new();
-    f.read_to_end(&mut data)?;
+    if file_name.starts_with("-") {
+        stdin().read_to_end(&mut data)?;
+    } else {
+        let mut f = File::open(file_name)?;
+        f.read_to_end(&mut data)?;
+    }
     Ok(data)
 }
 
