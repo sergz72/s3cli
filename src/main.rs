@@ -5,7 +5,29 @@ use s3cli_lib::{build_key_info, KeyInfo};
 use s3cli_lib::azure::build_azure_key_info;
 
 fn usage() {
-    println!("Usage: s3cli key_file [get remote_file local_file][ls path][put local_file remote_file]")
+    println!("Usage: s3cli key_file
+    [get remote_file local_file]
+    [ls path]
+    [put local_file remote_file]
+    [url_get remote_file]
+    [url_put remote_file]
+    [qget remote_file local_file]
+    [qput local_file remote_file]")
+}
+
+fn build_key_info_from_file(file_name: &String) -> Result<Box<dyn KeyInfo>, Error> {
+    let data = load_file(file_name)?;
+    let key_info: Box<dyn KeyInfo> = if file_name.contains("azure") {
+        Box::new(build_azure_key_info(data)?)
+    } else{
+        Box::new(build_key_info(data)?)
+    };
+    Ok(key_info)
+}
+
+fn build_qkey_info_from_file(file_name: &String) -> Result<Box<dyn KeyInfo>, Error> {
+    let data = load_file(file_name)?;
+    todo!()
 }
 
 fn main() -> Result<(), Error> {
@@ -14,17 +36,36 @@ fn main() -> Result<(), Error> {
     if l < 3 || l > 4 {
         usage();
     } else {
-        let data = load_file(&arguments[0])?;
-        let key_info: Box<dyn KeyInfo> = if arguments[0].contains("azure") {
-            Box::new(build_azure_key_info(data)?)
-        } else{
-            Box::new(build_key_info(data)?)
-        };
         match arguments[1].as_str() {
             "get" => {
                 if l != 4 {
                     usage()
                 } else {
+                    let key_info = build_key_info_from_file(&arguments[0])?;
+                    run_get_command(key_info, &arguments[2], &arguments[3])?;
+                }
+            },
+            "url_get" => {
+                if l != 3 {
+                    usage()
+                } else {
+                    let key_info = build_key_info_from_file(&arguments[0])?;
+                    run_get_url_command(key_info, &arguments[2])?;
+                }
+            },
+            "url_put" => {
+                if l != 3 {
+                    usage()
+                } else {
+                    let key_info = build_key_info_from_file(&arguments[0])?;
+                    run_put_url_command(key_info, &arguments[2])?;
+                }
+            },
+            "qget" => {
+                if l != 4 {
+                    usage()
+                } else {
+                    let key_info = build_qkey_info_from_file(&arguments[0])?;
                     run_get_command(key_info, &arguments[2], &arguments[3])?;
                 }
             },
@@ -32,6 +73,15 @@ fn main() -> Result<(), Error> {
                 if l != 4 {
                     usage()
                 } else {
+                    let key_info = build_key_info_from_file(&arguments[0])?;
+                    run_put_command(key_info, &arguments[2], &arguments[3])?;
+                }
+            },
+            "qput" => {
+                if l != 4 {
+                    usage()
+                } else {
+                    let key_info = build_qkey_info_from_file(&arguments[0])?;
                     run_put_command(key_info, &arguments[2], &arguments[3])?;
                 }
             },
@@ -39,6 +89,7 @@ fn main() -> Result<(), Error> {
                 if l != 3 {
                     usage()
                 } else {
+                    let key_info = build_key_info_from_file(&arguments[0])?;
                     run_ls_command(key_info, &arguments[2])?;
                 }
             },
@@ -66,6 +117,22 @@ fn run_get_command(key_info: Box<dyn KeyInfo>, remote_file: &String, local_file:
     let data = request_info.make_request(None)?;
     let mut f = File::create(local_file)?;
     f.write_all(&data)?;
+    Ok(())
+}
+
+fn run_get_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Result<(), Error> {
+    let url = key_info.build_presigned_url("GET",
+                                                   chrono::Utc::now(), remote_file,
+                                                   60)?;
+    println!("{}", url);
+    Ok(())
+}
+
+fn run_put_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Result<(), Error> {
+    let url = key_info.build_presigned_url("PUT",
+                                           chrono::Utc::now(), remote_file,
+                                           60)?;
+    println!("{}", url);
     Ok(())
 }
 
