@@ -1,8 +1,10 @@
 use std::env::args;
+use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, stdin, Write};
 use s3cli_lib::{build_key_info, KeyInfo};
 use s3cli_lib::azure::build_azure_key_info;
+use s3cli_lib::qs3::QKeyInfo;
 
 fn usage() {
     println!("Usage: s3cli key_file
@@ -26,8 +28,18 @@ fn build_key_info_from_file(file_name: &String) -> Result<Box<dyn KeyInfo>, Erro
 }
 
 fn build_qkey_info_from_file(file_name: &String) -> Result<Box<dyn KeyInfo>, Error> {
-    let data = load_file(file_name)?;
-    todo!()
+    let text = fs::read_to_string(file_name)?;
+    let lines: Vec<String> = text
+        .split('\n')
+        .map(|v| v.to_string().trim().to_string())
+        .collect();
+    if lines.len() < 2 {
+        return Err(Error::new(ErrorKind::InvalidData, "incorrect qkey file"));
+    }
+    let config = load_file(&lines[0])?;
+    let rsa_key = fs::read_to_string(&lines[1])?;
+    let qkey_info = QKeyInfo::new(config, rsa_key, 2, 3)?;
+    Ok(Box::new(qkey_info))
 }
 
 fn main() -> Result<(), Error> {
