@@ -38,7 +38,8 @@ fn build_qkey_info_from_file(file_name: &String) -> Result<Box<dyn KeyInfo>, Err
     }
     let config = load_file(&lines[0])?;
     let rsa_key = fs::read_to_string(&lines[1])?;
-    let qkey_info = QKeyInfo::new(config, rsa_key, 2, 3)?;
+    let qkey_info = QKeyInfo::new(config, rsa_key, 2, 3, 
+                                  if lines.len() > 2 && !lines[2].is_empty() {Some(fs::read(&lines[2])?)} else {None})?;
     Ok(Box::new(qkey_info))
 }
 
