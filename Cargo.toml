@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chrono = "0.4.40"
+chrono = "0.X"
 s3cli_lib = { path = "../s3cli_lib"}
+base64 = "0.X"
