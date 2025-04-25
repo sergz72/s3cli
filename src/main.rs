@@ -156,7 +156,10 @@ fn main() -> Result<(), Error> {
 
 fn run_local_copy(source_file_name: String, dest_file_name: String,
                   crypto_processor: Box<dyn CryptoProcessor>) -> Result<(), Error> {
-    todo!()
+    let data = load_file(&source_file_name)?;
+    let encrypted = crypto_processor.encrypt(data)?;
+    let mut f = File::create(dest_file_name)?;
+    f.write_all(&encrypted)
 }
 
 fn load_file(file_name: &String) -> Result<Vec<u8>, Error> {
@@ -178,8 +181,7 @@ fn run_get_command(key_info: Box<dyn KeyInfo>, remote_file: &String, local_file:
     let data = request_info.make_request(None)?;
     let decrypted = crypto_processor.decrypt(data)?;
     let mut f = File::create(local_file)?;
-    f.write_all(&decrypted)?;
-    Ok(())
+    f.write_all(&decrypted)
 }
 
 fn run_get_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Result<(), Error> {
