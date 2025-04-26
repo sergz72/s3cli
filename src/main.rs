@@ -5,6 +5,7 @@ use std::env::args;
 use std::fs;
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, stdin, Write, Seek, SeekFrom};
+use std::path::Path;
 use s3cli_lib::{build_key_info, build_key_parameters, KeyInfo};
 use s3cli_lib::azure::build_azure_key_info;
 use s3cli_lib::qs3::QKeyInfo;
@@ -12,11 +13,13 @@ use crate::crypto::{build_crypto_processor, CryptoProcessor};
 
 struct CommandParameters {
     crypto_processor: Box<dyn CryptoProcessor>,
-    max_file_size: u64
+    max_file_size: u64,
+    dry_run: bool,
+    decrypt: bool
 }
 
 struct LocalFile {
-    file: File,
+    files: Vec<(String, File)>,
     num_parts: u64,
     file_size: u64,
     parameters: CommandParameters
@@ -24,29 +27,68 @@ struct LocalFile {
 
 impl LocalFile {
     fn open(file_name: String, parameters: CommandParameters) -> Result<LocalFile, Error> {
-        let file = fs::File::open(file_name)?;
-        let file_size = file.metadata()?.len();
-        let mut num_parts = file_size / parameters.max_file_size;
-        if file_size % parameters.max_file_size != 0 {num_parts += 1}
-        Ok(LocalFile{file, num_parts, file_size, parameters})
+        let file = if parameters.decrypt {
+            let mut file_list = Vec::new();
+            let path = Path::new(&file_name);
+            let mut parent = path.parent().unwrap();
+            if parent.file_name().is_none() {
+                parent = Path::new(".");
+            }
+            //println!("{}", parent.to_str().unwrap());
+            let files = fs::read_dir(parent)?;
+            let main_file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+            for file_result in files {
+                let file = file_result?;
+                let file_name = file.file_name().to_str().unwrap().to_string();
+                if file_name.starts_with(&main_file_name) {
+                    file_list.push((file_name, File::open(file.path())?));
+                }
+            }
+            let num_parts = file_list.len() as u64;
+            if num_parts == 0 {
+                return Err(Error::new(ErrorKind::InvalidInput, "File list is empty"));
+            }
+            file_list.sort_by(|a, b| a.0.cmp(&b.0));
+            LocalFile { files: file_list, num_parts, file_size: 0, parameters}
+        } else {
+            let file = File::open(&file_name)?;
+            let file_size = file.metadata()?.len();
+            let mut num_parts = file_size / parameters.max_file_size;
+            if file_size % parameters.max_file_size != 0 { num_parts += 1 }
+            LocalFile { files: vec![(file_name, file)], num_parts, file_size, parameters}
+        };
+        Ok(file)
     }
     
     fn get_part(&mut self, part_number: u64, dest_file_name: &String)
         -> Result<(Vec<u8>, String), Error> {
-        let seek_pos = self.parameters.max_file_size * part_number;
-        self.file.seek(SeekFrom::Start(seek_pos))?;
-        let mut expected_size = self.file_size - seek_pos;
-        if expected_size > self.parameters.max_file_size {expected_size = self.parameters.max_file_size}
-        let mut buffer = vec![0u8; expected_size as usize];
-        let size = self.file.read(&mut buffer)?;
-        if size != expected_size as usize {
-            return Err(Error::new(ErrorKind::InvalidData, "Corrupted file"));
-        }
-        let mut file_name = dest_file_name.clone();
-        if self.num_parts > 1 {
-            file_name += part_number.to_string().as_str();
-        }
-        let encrypted = self.parameters.crypto_processor.encrypt(buffer)?;
+        let (buffer, file_name) = if self.files.len() > 1 {
+            let mut buffer = Vec::new();
+            let (file_name, file) = &mut self.files[part_number as usize];
+            file.read_to_end(&mut buffer)?;
+            (buffer, file_name.clone())
+        } else {
+            let seek_pos = self.parameters.max_file_size * part_number;
+            self.files[0].1.seek(SeekFrom::Start(seek_pos))?;
+            let mut expected_size = self.file_size - seek_pos;
+            if expected_size > self.parameters.max_file_size { expected_size = self.parameters.max_file_size }
+            let mut buffer = vec![0u8; expected_size as usize];
+            let size = self.files[0].1.read(&mut buffer)?;
+            if size != expected_size as usize {
+                return Err(Error::new(ErrorKind::InvalidData, "Corrupted file"));
+            }
+            let mut file_name = dest_file_name.clone();
+            if self.num_parts > 1 {
+                file_name += ".";
+                file_name += part_number.to_string().as_str();
+            }
+            (buffer, file_name)
+        };
+        let encrypted = if self.parameters.decrypt {
+            self.parameters.crypto_processor.decrypt(buffer)?
+        } else {
+            self.parameters.crypto_processor.encrypt(buffer)?
+        };
         println!("File part {} size {} file name {}", part_number, encrypted.len(), file_name);
         Ok((encrypted, file_name))
     }
@@ -120,13 +162,13 @@ fn main() -> Result<(), Error> {
         .skip(1)
         .collect();
     let arguments: Vec<String> = all_arguments.iter()
-        .filter(|a|!a.starts_with("-"))
+        .filter(|a|!a.starts_with("--"))
         .map(|a| a.clone())
         .collect();
     let options: HashMap<String, String> = all_arguments.iter()
-        .filter(|a|a.starts_with("-"))
+        .filter(|a|a.starts_with("--"))
         .map(|a| a.split_once('=').unwrap_or((a.as_str(), "")))
-        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .map(|(key, value)| (key[2..].to_string(), value.to_string()))
         .collect();
     let l = arguments.len();
     if l < 2 || l > 3 {
@@ -157,7 +199,7 @@ fn main() -> Result<(), Error> {
                                     let parameters = build_parameters(&remote_file)?;
                                     let key_info = build_key_info_from_parameters(&remote_file, &parameters)?;
                                     let command_parameters = build_command_parameters(config, parameters, options)?;
-                                    run_put_command(key_info, &source_file_name, &dest_file_name, command_parameters)?;
+                                    run_put_command(key_info, source_file_name, dest_file_name, command_parameters)?;
                                 }
                                 None => {
                                     let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
@@ -206,7 +248,7 @@ fn main() -> Result<(), Error> {
                                     let parameters = build_parameters(&remote_file)?;
                                     let key_info = build_qkey_info_from_parameters(&parameters)?;
                                     let command_parameters = build_command_parameters(config, parameters, options)?;
-                                    run_put_command(key_info, &source_file_name, &dest_file_name, command_parameters)?;
+                                    run_put_command(key_info, source_file_name, dest_file_name, command_parameters)?;
                                 }
                                 None => {
                                     let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
@@ -245,7 +287,11 @@ fn build_command_parameters(config: HashMap<String, String>, parameters: HashMap
         .unwrap_or(Ok(u64::MAX))
         .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
     println!("Max file size {}", max_file_size);
-    Ok(CommandParameters{crypto_processor, max_file_size})
+    let dry_run = options.contains_key("dry_run");
+    if dry_run {println!("Dry run");}
+    let decrypt = options.contains_key("decrypt");
+    if decrypt {println!("Decrypt");}
+    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt})
 }
 
 fn parse_size(size_string: &String) -> Result<u64, Error> {
@@ -253,9 +299,9 @@ fn parse_size(size_string: &String) -> Result<u64, Error> {
         return Err(Error::new(ErrorKind::InvalidData, "invalid size"));
     }
     let (size, multiplier) = match size_string.chars().last().unwrap() {
-        'K' => (size_string[..size_string.len() - 2].to_string(), 1024),
-        'M' => (size_string[..size_string.len() - 2].to_string(), 1024 * 1024),
-        'G' => (size_string[..size_string.len() - 2].to_string(), 1024 * 1024 * 1024),
+        'K' => (size_string[..size_string.len() - 1].to_string(), 1024),
+        'M' => (size_string[..size_string.len() - 1].to_string(), 1024 * 1024),
+        'G' => (size_string[..size_string.len() - 1].to_string(), 1024 * 1024 * 1024),
         _ => (size_string.clone(), 1)
     };
     size.parse::<u64>()
@@ -265,11 +311,25 @@ fn parse_size(size_string: &String) -> Result<u64, Error> {
 
 fn run_local_copy(source_file_name: String, dest_file_name: String,
                   parameters: CommandParameters) -> Result<(), Error> {
+    let dry_run = parameters.dry_run;
+    let decrypt = parameters.decrypt;
     let mut file = LocalFile::open(source_file_name, parameters)?;
-    for part_no in 0..file.num_parts {
-        let (part, file_name) = file.get_part(part_no, &dest_file_name)?;
-        let mut f = File::create(file_name)?;
-        f.write_all(&part)?;
+    if decrypt {
+        let mut f = File::create(&dest_file_name)?;
+        for part_no in 0..file.num_parts {
+            let (part, _) = file.get_part(part_no, &dest_file_name)?;
+            if !dry_run {
+                f.write_all(&part)?;
+            }
+        }
+    } else {
+        for part_no in 0..file.num_parts {
+            let (part, file_name) = file.get_part(part_no, &dest_file_name)?;
+            if !dry_run {
+                let mut f = File::create(file_name)?;
+                f.write_all(&part)?;
+            }
+        }
     }
     Ok(())
 }
@@ -312,17 +372,22 @@ fn run_put_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Resu
     Ok(())
 }
 
-fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: &String, remote_file: &String,
+fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: String,
                    parameters: CommandParameters) -> Result<(), Error> {
-    let data = load_file(local_file)?;
-    let encrypted = parameters.crypto_processor.encrypt(data)?;
-    let request_info = key_info.build_request_info("PUT",
-                                                   chrono::Utc::now(), &encrypted,
-                                                   remote_file)?;
-    let data = request_info.make_request(Some(encrypted))?;
-    let text = String::from_utf8(data)
-        .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
-    println!("{}", text);
+    let dry_run = parameters.dry_run;
+    let mut file = LocalFile::open(local_file, parameters)?;
+    for part_no in 0..file.num_parts {
+        let (part, file_name) = file.get_part(part_no, &remote_file)?;
+        if !dry_run {
+            let request_info = key_info.build_request_info("PUT",
+                                                           chrono::Utc::now(), &part,
+                                                           &file_name)?;
+            let data = request_info.make_request(Some(part))?;
+            let text = String::from_utf8(data)
+                .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+            println!("{}", text);
+        }
+    }
     Ok(())
 }
 
