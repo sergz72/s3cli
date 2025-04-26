@@ -10,6 +10,30 @@ use s3cli_lib::{build_key_info, build_key_parameters, KeyInfo};
 use s3cli_lib::azure::build_azure_key_info;
 use s3cli_lib::qs3::QKeyInfo;
 use crate::crypto::{build_crypto_processor, CryptoProcessor};
+use serde::{Deserialize, Serialize};
+use serde_xml_rs::from_str;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct BucketContents {
+    #[serde(rename = "Key")]
+    key: String,
+    #[serde(rename = "Size")]
+    size: u64
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct ListBucketResult {
+    #[serde(rename = "Contents")]
+    contents: Vec<BucketContents>
+}
+
+impl ListBucketResult {
+    pub(crate) fn print(&self) {
+        for content in &self.contents {
+            println!("{} {}", content.key, content.size);
+        }
+    }
+}
 
 struct CommandParameters {
     crypto_processor: Box<dyn CryptoProcessor>,
@@ -391,13 +415,19 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
     Ok(())
 }
 
-fn run_ls_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
+fn ls(key_info: Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
                                                    &Vec::new(), path)?;
     let data = request_info.make_request(None)?;
-    let text = String::from_utf8(data)
+    let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
-    println!("{}", text);
+    from_str(&contents)
+        .map_err(|e|Error::new(ErrorKind::InvalidData, e))
+}
+
+fn run_ls_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
+    let result = ls(key_info, &path)?;
+    result.print();
     Ok(())
 }
