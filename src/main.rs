@@ -73,7 +73,8 @@ impl LocalFile {
                 return Err(Error::new(ErrorKind::InvalidInput, "File list is empty"));
             }
             file_list.sort_by(|a, b| a.0.cmp(&b.0));
-            LocalFile { files: file_list, num_parts, file_size: 0, parameters}
+            let file_size = if file_list.len() == 1 {file_list[0].1.metadata()?.len()} else {0};
+            LocalFile { files: file_list, num_parts, file_size, parameters}
         } else {
             let file = File::open(&file_name)?;
             let file_size = file.metadata()?.len();
@@ -371,13 +372,26 @@ fn load_file(file_name: &String) -> Result<Vec<u8>, Error> {
 
 fn run_get_command(key_info: Box<dyn KeyInfo>, remote_file: &String, local_file: &String,
                     parameters: CommandParameters) -> Result<(), Error> {
-    let request_info = key_info.build_request_info("GET",
-                                                   chrono::Utc::now(), &Vec::new(),
-                                                   remote_file)?;
-    let data = request_info.make_request(None)?;
-    let decrypted = parameters.crypto_processor.decrypt(data)?;
-    let mut f = File::create(local_file)?;
-    f.write_all(&decrypted)
+    let path = Path::new(&remote_file);
+    let bucket = path.parent().unwrap().file_name().unwrap().to_str().unwrap().to_string();
+    let mut files = ls(&key_info, &bucket)?;
+    let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+    files.contents.sort_by(|a,b| a.key.cmp(&b.key));
+    let mut f = File::create(&local_file)?;
+    for file in files.contents {
+        if file.key.starts_with(&file_name) {
+            println!("Source file {} size {}", file.key, file.size);
+            if !parameters.dry_run {
+                let request_info = key_info.build_request_info("GET",
+                                                               chrono::Utc::now(), &Vec::new(),
+                                                               &format!("{}/{}", bucket, file.key))?;
+                let data = request_info.make_request(None)?;
+                let decrypted = parameters.crypto_processor.decrypt(data)?;
+                f.write_all(&decrypted)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn run_get_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Result<(), Error> {
@@ -415,7 +429,7 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
     Ok(())
 }
 
-fn ls(key_info: Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Error> {
+fn ls(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
                                                    &Vec::new(), path)?;
@@ -427,7 +441,7 @@ fn ls(key_info: Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Err
 }
 
 fn run_ls_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
-    let result = ls(key_info, &path)?;
+    let result = ls(&key_info, &path)?;
     result.print();
     Ok(())
 }
