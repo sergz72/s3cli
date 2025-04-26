@@ -23,7 +23,7 @@ struct BucketContents {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 struct ListBucketResult {
-    #[serde(rename = "Contents")]
+    #[serde(rename = "Contents", default)]
     contents: Vec<BucketContents>
 }
 
