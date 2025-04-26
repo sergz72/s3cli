@@ -4,6 +4,7 @@ use base64::engine::general_purpose;
 use chacha20::ChaCha20;
 use chacha20::cipher::crypto_common::rand_core::{OsRng, RngCore};
 use chacha20::cipher::{KeyIvInit, StreamCipher};
+use sha2::{Sha256, Digest};
 
 pub trait CryptoProcessor {
     fn encrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error>;
@@ -31,17 +32,24 @@ impl CryptoProcessor for ChachaEncryption {
         let mut iv = [0u8; 12];
         OsRng.try_fill_bytes(&mut iv)
             .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let mut crc = create_hash(&data);
         let bytes = data.as_slice();
         let mut out_vec = self.transform(&iv, bytes)?;
         let mut result = iv.to_vec();
         result.append(&mut out_vec);
+        result.append(&mut crc);
         Ok(result)
     }
 
     fn decrypt(&self, data: Vec<u8>) -> Result<Vec<u8>, Error> {
         let iv = &data[0..12];
-        let encrypted = &data[12..];
-        self.transform(iv, encrypted)
+        let encrypted = &data[12..data.len()-32];
+        let decrypted = self.transform(iv, encrypted)?;
+        let crc = create_hash(&decrypted);
+        if crc != data[data.len()-32..] {
+            return Err(Error::new(ErrorKind::Other, "Invalid CRC"));
+        }
+        Ok(decrypted)
     }
 }
 
@@ -71,4 +79,11 @@ pub fn build_crypto_processor(encryption_key: Option<&String>) -> Result<Box<dyn
     encryption_key
         .map(|key|ChachaEncryption::new(key))
         .unwrap_or(Ok(Box::new(NoEncryption{})))
+}
+
+fn create_hash(data: &Vec<u8>) -> Vec<u8> {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let hash = hasher.finalize();
+    Vec::from(hash.as_slice())
 }

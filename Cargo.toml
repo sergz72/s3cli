@@ -8,3 +8,4 @@ chrono = "0.X"
 s3cli_lib = { path = "../s3cli_lib"}
 base64 = "0.X"
 chacha20 = "0.9.X"
+sha2 = "0.X"
