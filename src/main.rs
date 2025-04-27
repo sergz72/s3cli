@@ -39,7 +39,8 @@ struct CommandParameters {
     crypto_processor: Box<dyn CryptoProcessor>,
     max_file_size: u64,
     dry_run: bool,
-    decrypt: bool
+    decrypt: bool,
+    from_part: u64
 }
 
 struct LocalFile {
@@ -316,7 +317,11 @@ fn build_command_parameters(config: HashMap<String, String>, parameters: HashMap
     if dry_run {println!("Dry run");}
     let decrypt = options.contains_key("decrypt");
     if decrypt {println!("Decrypt");}
-    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt})
+    let from_part = options.get("from_part")
+        .map(|s| s.parse::<u64>())
+        .unwrap_or(Ok(0))
+        .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
+    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt, from_part})
 }
 
 fn parse_size(size_string: &String) -> Result<u64, Error> {
@@ -413,8 +418,9 @@ fn run_put_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Resu
 fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: String,
                    parameters: CommandParameters) -> Result<(), Error> {
     let dry_run = parameters.dry_run;
+    let from_part = parameters.from_part;
     let mut file = LocalFile::open(local_file, parameters)?;
-    for part_no in 0..file.num_parts {
+    for part_no in from_part..file.num_parts {
         let (part, file_name) = file.get_part(part_no, &remote_file)?;
         if !dry_run {
             let request_info = key_info.build_request_info("PUT",
