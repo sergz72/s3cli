@@ -106,7 +106,13 @@ impl LocalFile {
             let mut file_name = dest_file_name.clone();
             if self.num_parts > 1 {
                 file_name += ".";
-                file_name += part_number.to_string().as_str();
+                if self.num_parts <= 10 {
+                    file_name += part_number.to_string().as_str();
+                } else if self.num_parts <= 100 {
+                    file_name += format!("{:02}", part_number).as_str();
+                } else {
+                    file_name += format!("{:03}", part_number).as_str();
+                }
             }
             (buffer, file_name)
         };
