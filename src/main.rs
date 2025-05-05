@@ -234,7 +234,9 @@ fn main() -> Result<(), Error> {
                                     run_put_command(key_info, source_file_name, dest_file_name, command_parameters)?;
                                 }
                                 None => {
-                                    let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
+                                    let remote_file = config.get("local").ok_or(Error::new(ErrorKind::InvalidData, "local remote is not defined"))?;
+                                    let parameters = build_parameters(&remote_file)?;
+                                    let command_parameters = build_command_parameters(config, parameters, options)?;
                                     run_local_copy(source_file_name, dest_file_name, command_parameters)?
                                 }
                             }
@@ -283,7 +285,9 @@ fn main() -> Result<(), Error> {
                                     run_put_command(key_info, source_file_name, dest_file_name, command_parameters)?;
                                 }
                                 None => {
-                                    let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
+                                    let remote_file = config.get("local").ok_or(Error::new(ErrorKind::InvalidData, "local remote is not defined"))?;
+                                    let parameters = build_parameters(&remote_file)?;
+                                    let command_parameters = build_command_parameters(config, parameters, options)?;
                                     run_local_copy(source_file_name, dest_file_name, command_parameters)?
                                 }
                             }
