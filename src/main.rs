@@ -27,10 +27,73 @@ struct ListBucketResult {
     contents: Vec<BucketContents>
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct ObjectVersion {
+    #[serde(rename = "Key")]
+    key: String,
+    #[serde(rename = "VersionId")]
+    version_id: String,
+    #[serde(rename = "LastModified")]
+    last_modified: String,
+    #[serde(rename = "Size")]
+    size: u64
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
+struct DeleteMarker {
+    #[serde(rename = "Key")]
+    key: String,
+    #[serde(rename = "VersionId")]
+    version_id: String
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct NameMarker {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct MaxKeys {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct IsTruncated {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+enum ObjectDetail {
+    #[serde(rename = "Version")]
+    ObjectVersion(ObjectVersion),
+    #[serde(rename = "DeleteMarker")]
+    DeleteMarker(DeleteMarker),
+    #[serde(rename = "Name")]
+    NameMarker(NameMarker),
+    MaxKeys(MaxKeys),
+    IsTruncated(IsTruncated),
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct ListObjectVersions {
+    #[serde(rename = "$value")]
+    contents: Vec<ObjectDetail>
+}
+
 impl ListBucketResult {
-    pub(crate) fn print(&self) {
+    fn print(&self) {
         for content in &self.contents {
             println!("{} {}", content.key, content.size);
+        }
+    }
+}
+
+impl ListObjectVersions {
+    fn print(&self) {
+        for content in &self.contents {
+            if let ObjectDetail::ObjectVersion(version) = content {
+                println!("{} {} {} {}", version.key, version.version_id, version.last_modified, version.size);
+            }
         }
     }
 }
@@ -130,6 +193,7 @@ fn usage() {
     println!("Usage: s3cli
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
+    [versions remote_name:path]
     [url_get remote_name:remote_file]
     [url_put remote_name:remote_file]
     [qcp source_file_name destination_file_name]")
@@ -303,6 +367,14 @@ fn main() -> Result<(), Error> {
                     run_ls_command(key_info, &path)?;
                 }
             },
+            "versions" => {
+                if l != 2 {
+                    usage()
+                } else {
+                    let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
+                    run_versions_command(key_info, &path)?;
+                }
+            },
             _ => usage()
         }
     }
@@ -399,7 +471,8 @@ fn run_get_command(key_info: Box<dyn KeyInfo>, remote_file: &String, local_file:
             if !parameters.dry_run {
                 let request_info = key_info.build_request_info("GET",
                                                                chrono::Utc::now(), &Vec::new(),
-                                                               &format!("{}/{}", bucket, file.key))?;
+                                                               &format!("{}/{}", bucket, file.key),
+                                                               "".to_string())?;
                 let data = request_info.make_request(None)?;
                 let decrypted = parameters.crypto_processor.decrypt(data)?;
                 f.write_all(&decrypted)?;
@@ -435,7 +508,7 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
         if !dry_run {
             let request_info = key_info.build_request_info("PUT",
                                                            chrono::Utc::now(), &part,
-                                                           &file_name)?;
+                                                           &file_name, "".to_string())?;
             let data = request_info.make_request(Some(part))?;
             let text = String::from_utf8(data)
                 .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
@@ -448,7 +521,7 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
 fn ls(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
-                                                   &Vec::new(), path)?;
+                                                   &Vec::new(), path, "".to_string())?;
     let data = request_info.make_request(None)?;
     let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
@@ -460,4 +533,38 @@ fn run_ls_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error
     let result = ls(&key_info, &path)?;
     result.print();
     Ok(())
+}
+
+fn versions(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListObjectVersions, Error> {
+    let request_info = key_info.build_request_info("GET",
+                                                   chrono::Utc::now(),
+                                                   &Vec::new(), &path, "versions".to_string())?;
+    let data = request_info.make_request(None)?;
+    let contents = String::from_utf8(data)
+        .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    from_str(&contents)
+        .map_err(|e|Error::new(ErrorKind::InvalidData, e))
+}
+
+fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
+    let result = versions(&key_info, &path)?;
+    result.print();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::io::{Error, ErrorKind};
+    use serde_xml_rs::from_str;
+    use crate::ListObjectVersions;
+
+    #[test]
+    fn test_convert_list_object_versions_from_xml() -> Result<(), Error> {
+        let test_data: String = fs::read_to_string("test_resources/ListObjectVersions.xml")?;
+        let versions: ListObjectVersions = from_str(&test_data)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+        versions.print();
+        Ok(())
+    }
 }
