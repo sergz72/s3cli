@@ -88,11 +88,17 @@ impl ListBucketResult {
     }
 }
 
+impl ObjectVersion {
+    fn print(&self) {
+        println!("{} {} {} {}", self.key, self.version_id, self.last_modified, self.size)
+    }
+}
+
 impl ListObjectVersions {
     fn print(&self) {
         for content in &self.contents {
             if let ObjectDetail::ObjectVersion(version) = content {
-                println!("{} {} {} {}", version.key, version.version_id, version.last_modified, version.size);
+                version.print();
             }
         }
     }
@@ -194,7 +200,8 @@ fn usage() {
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
     [versions remote_name:path]
-    [delete_version remote_name:remote_file]
+    [delete_version remote_name:remote_file versionId]
+    [cleanup_versions remote_name:remote_file number_of_versions]
     [url_get remote_name:remote_file]
     [url_put remote_name:remote_file]
     [qcp source_file_name destination_file_name]")
@@ -381,7 +388,18 @@ fn main() -> Result<(), Error> {
                     usage()
                 } else {
                     let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
-                    run_delete_version_command(key_info, &path, &arguments[2])?;
+                    run_delete_version_command(&key_info, &path, &arguments[2])?;
+                }
+            },
+            "cleanup_versions" => {
+                if l != 3 {
+                    usage()
+                } else {
+                    let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
+                    let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
+                    run_cleanup_versions_command(key_info, &path, arguments[2].parse::<usize>()
+                        .map_err(|_| Error::new(ErrorKind::InvalidData, "invalid number"))?,
+                        command_parameters)?;
                 }
             },
             _ => usage()
@@ -561,7 +579,7 @@ fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(),
     Ok(())
 }
 
-fn run_delete_version_command(key_info: Box<dyn KeyInfo>, path: &String, version: &String) -> Result<(), Error> {
+fn run_delete_version_command(key_info: &Box<dyn KeyInfo>, path: &String, version: &String) -> Result<(), Error> {
     let request_info = key_info.build_request_info("DELETE",
                                                    chrono::Utc::now(),
                                                    &Vec::new(), &path, "versionId=".to_string() + version.as_str())?;
@@ -569,6 +587,37 @@ fn run_delete_version_command(key_info: Box<dyn KeyInfo>, path: &String, version
     let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
     println!("{}", contents);
+    Ok(())
+}
+
+fn run_cleanup_versions_command(key_info: Box<dyn KeyInfo>, path: &String, num_versions: usize,
+                                parameters: CommandParameters) -> Result<(), Error> {
+    let parts = path.split_once('/')
+        .ok_or(Error::new(ErrorKind::InvalidData, "File name expected"))?;
+    if parts.0.is_empty() || parts.1.is_empty() {
+        return Err(Error::new(ErrorKind::InvalidData, "Invalid file path"));
+    }
+    let file_versions = versions(&key_info, &parts.0.to_string())?;
+    let mut selected_versions = Vec::new();
+    for version in file_versions.contents {
+        if let ObjectDetail::ObjectVersion(v) = version {
+            if v.key == parts.1 {
+                selected_versions.push(v);
+            }
+        }
+    }
+    println!("Found {} file versions:", selected_versions.len());
+    for selected_version in &selected_versions {
+        selected_version.print();
+    }
+    selected_versions.sort_by(|a, b| a.last_modified.cmp(&b.last_modified));
+    while selected_versions.len() > num_versions {
+        let selected_version = selected_versions.remove(0);
+        println!("Deleting file version: {}", selected_version.version_id);
+        if !parameters.dry_run {
+            run_delete_version_command(&key_info, path, &selected_version.version_id)?;
+        }
+    }
     Ok(())
 }
 
