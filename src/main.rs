@@ -194,6 +194,7 @@ fn usage() {
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
     [versions remote_name:path]
+    [delete_version remote_name:remote_file]
     [url_get remote_name:remote_file]
     [url_put remote_name:remote_file]
     [qcp source_file_name destination_file_name]")
@@ -375,6 +376,14 @@ fn main() -> Result<(), Error> {
                     run_versions_command(key_info, &path)?;
                 }
             },
+            "delete_version" => {
+                if l != 3 {
+                    usage()
+                } else {
+                    let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
+                    run_delete_version_command(key_info, &path, &arguments[2])?;
+                }
+            },
             _ => usage()
         }
     }
@@ -549,6 +558,17 @@ fn versions(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListObjectVers
 fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
     let result = versions(&key_info, &path)?;
     result.print();
+    Ok(())
+}
+
+fn run_delete_version_command(key_info: Box<dyn KeyInfo>, path: &String, version: &String) -> Result<(), Error> {
+    let request_info = key_info.build_request_info("DELETE",
+                                                   chrono::Utc::now(),
+                                                   &Vec::new(), &path, "versionId=".to_string() + version.as_str())?;
+    let data = request_info.make_request(None)?;
+    let contents = String::from_utf8(data)
+        .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    println!("{}", contents);
     Ok(())
 }
 
