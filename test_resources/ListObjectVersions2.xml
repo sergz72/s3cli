@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListVersionsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+<Name>backupHomeAccounting</Name>
+<MaxKeys>1000</MaxKeys>
+<IsTruncated>false</IsTruncated>
+<Version>
+  <Key>data.bin</Key>
+  <VersionId>30546d4d-6e07-4455-8890-0f9b71c009ab</VersionId>
+  <IsLatest>true</IsLatest>
+  <LastModified>2025-05-14T22:05:36.000Z</LastModified>
+  <Owner>
+    <ID>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</ID>
+    <DisplayName>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</DisplayName>
+  </Owner>
+  <ETag>"26901d4f2e03c6cf3303848bb0f26049"</ETag>
+  <Size>1029332</Size>
+  <StorageClass>STANDARD</StorageClass>
+</Version>
+<Version>
+  <Key>data.bin</Key><VersionId>4b236c36-68fa-44dc-994e-5cb2e8464648</VersionId><IsLatest>false</IsLatest><LastModified>2025-05-13T22:05:38.000Z</LastModified><Owner><ID>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</ID><DisplayName>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</DisplayName></Owner><ETag>"25ec68ca7a67dae2987cfa67e5cd06ef"</ETag><Size>1029104</Size><StorageClass>STANDARD</StorageClass></Version><Version><Key>data.bin</Key><VersionId>b426cd1a-205a-4b27-9c08-0f5c57a60660</VersionId><IsLatest>false</IsLatest><LastModified>2025-05-12T22:05:56.000Z</LastModified><Owner><ID>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</ID><DisplayName>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</DisplayName></Owner><ETag>"66383eb59972e5a47a492fe38907aec7"</ETag><Size>1028864</Size><StorageClass>STANDARD</StorageClass></Version><Version><Key>data.bin</Key><VersionId>c23d45ba-140c-417d-931e-c27710468c78</VersionId><IsLatest>false</IsLatest><LastModified>2025-05-12T06:38:44.000Z</LastModified><Owner><ID>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</ID><DisplayName>ocid1.user.oc1..aaaaaaaatmtnwwh6ifadckv54iadrybhy3h6tsoe74hhngew3uocdpvpl3wq</DisplayName></Owner><ETag>"fd25de6be0a4f02d1ce9337cb4bc5efe"</ETag><Size>1028628</Size><StorageClass>STANDARD</StorageClass></Version></ListVersionsResult>

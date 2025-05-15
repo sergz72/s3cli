@@ -109,7 +109,8 @@ struct CommandParameters {
     max_file_size: u64,
     dry_run: bool,
     decrypt: bool,
-    from_part: u64
+    from_part: u64,
+    verbose: bool
 }
 
 struct LocalFile {
@@ -197,7 +198,7 @@ impl LocalFile {
 
 fn usage() {
     println!("Usage: s3cli
-    [--dry-run][--decrypt][--from-part]
+    [--dry-run][--decrypt][--from-part][--verbose]
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
     [versions remote_name:path]
@@ -381,7 +382,8 @@ fn main() -> Result<(), Error> {
                     usage()
                 } else {
                     let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
-                    run_versions_command(key_info, &path)?;
+                    let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
+                    run_versions_command(key_info, &path, command_parameters)?;
                 }
             },
             "delete_version" => {
@@ -428,11 +430,13 @@ fn build_command_parameters(config: HashMap<String, String>, parameters: HashMap
     if dry_run {println!("Dry run");}
     let decrypt = options.contains_key("decrypt");
     if decrypt {println!("Decrypt");}
+    let verbose = options.contains_key("verbose");
+    if verbose {println!("Verbose");}
     let from_part = options.get("from-part")
         .map(|s| s.parse::<u64>())
         .unwrap_or(Ok(0))
         .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
-    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt, from_part})
+    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt, from_part, verbose})
 }
 
 fn parse_size(size_string: &String) -> Result<u64, Error> {
@@ -564,19 +568,24 @@ fn run_ls_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error
     Ok(())
 }
 
-fn versions(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListObjectVersions, Error> {
+fn versions(key_info: &Box<dyn KeyInfo>, path: &String, parameters: &CommandParameters)
+    -> Result<ListObjectVersions, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
                                                    &Vec::new(), &path, "versions".to_string())?;
     let data = request_info.make_request(None)?;
     let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+    if parameters.verbose {
+        println!("{}", contents);
+    }
     from_str(&contents)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e))
 }
 
-fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(), Error> {
-    let result = versions(&key_info, &path)?;
+fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String, parameters: CommandParameters)
+    -> Result<(), Error> {
+    let result = versions(&key_info, &path, &parameters)?;
     result.print();
     Ok(())
 }
@@ -602,7 +611,7 @@ fn run_cleanup_versions_command(key_info: Box<dyn KeyInfo>, path: &String, num_v
     if parts.0.is_empty() || parts.1.is_empty() {
         return Err(Error::new(ErrorKind::InvalidData, "Invalid file path"));
     }
-    let file_versions = versions(&key_info, &parts.0.to_string())?;
+    let file_versions = versions(&key_info, &parts.0.to_string(), &parameters)?;
     let mut selected_versions = Vec::new();
     for version in file_versions.contents {
         if let ObjectDetail::ObjectVersion(v) = version {
@@ -634,6 +643,15 @@ mod tests {
     #[test]
     fn test_convert_list_object_versions_from_xml() -> Result<(), Error> {
         let test_data: String = fs::read_to_string("test_resources/ListObjectVersions.xml")?;
+        let versions: ListObjectVersions = from_str(&test_data)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+        versions.print();
+        Ok(())
+    }
+
+    #[test]
+    fn test_convert_list_object_versions2_from_xml() -> Result<(), Error> {
+        let test_data: String = fs::read_to_string("test_resources/ListObjectVersions2.xml")?;
         let versions: ListObjectVersions = from_str(&test_data)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
         versions.print();
