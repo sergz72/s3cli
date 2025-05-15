@@ -197,6 +197,7 @@ impl LocalFile {
 
 fn usage() {
     println!("Usage: s3cli
+    [--dry-run][--decrypt][--from-part]
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
     [versions remote_name:path]
@@ -388,7 +389,8 @@ fn main() -> Result<(), Error> {
                     usage()
                 } else {
                     let (key_info, path) = parse_remote_name(&arguments[1], &config)?;
-                    run_delete_version_command(&key_info, &path, &arguments[2])?;
+                    let command_parameters = build_command_parameters(config, HashMap::new(), options)?;
+                    run_delete_version_command(&key_info, &path, &arguments[2], &command_parameters)?;
                 }
             },
             "cleanup_versions" => {
@@ -422,11 +424,11 @@ fn build_command_parameters(config: HashMap<String, String>, parameters: HashMap
         .unwrap_or(Ok(u64::MAX))
         .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
     println!("Max file size {}", max_file_size);
-    let dry_run = options.contains_key("dry_run");
+    let dry_run = options.contains_key("dry-run");
     if dry_run {println!("Dry run");}
     let decrypt = options.contains_key("decrypt");
     if decrypt {println!("Decrypt");}
-    let from_part = options.get("from_part")
+    let from_part = options.get("from-part")
         .map(|s| s.parse::<u64>())
         .unwrap_or(Ok(0))
         .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
@@ -579,14 +581,17 @@ fn run_versions_command(key_info: Box<dyn KeyInfo>, path: &String) -> Result<(),
     Ok(())
 }
 
-fn run_delete_version_command(key_info: &Box<dyn KeyInfo>, path: &String, version: &String) -> Result<(), Error> {
-    let request_info = key_info.build_request_info("DELETE",
-                                                   chrono::Utc::now(),
-                                                   &Vec::new(), &path, "versionId=".to_string() + version.as_str())?;
-    let data = request_info.make_request(None)?;
-    let contents = String::from_utf8(data)
-        .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
-    println!("{}", contents);
+fn run_delete_version_command(key_info: &Box<dyn KeyInfo>, path: &String, version: &String,
+                              parameters: &CommandParameters) -> Result<(), Error> {
+    if !parameters.dry_run {
+        let request_info = key_info.build_request_info("DELETE",
+                                                       chrono::Utc::now(),
+                                                       &Vec::new(), &path, "versionId=".to_string() + version.as_str())?;
+        let data = request_info.make_request(None)?;
+        let contents = String::from_utf8(data)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        println!("{}", contents);
+    }
     Ok(())
 }
 
@@ -614,9 +619,7 @@ fn run_cleanup_versions_command(key_info: Box<dyn KeyInfo>, path: &String, num_v
     while selected_versions.len() > num_versions {
         let selected_version = selected_versions.remove(0);
         println!("Deleting file version: {}", selected_version.version_id);
-        if !parameters.dry_run {
-            run_delete_version_command(&key_info, path, &selected_version.version_id)?;
-        }
+        run_delete_version_command(&key_info, path, &selected_version.version_id, &parameters)?;
     }
     Ok(())
 }
