@@ -4,7 +4,7 @@
 - Copy from/to cloud or local file copy with optional file encryption
 - List files in bucket
 - List file versions in bucket
-- Delete file versionfrom cloud
+- Delete file version from cloud
 - Build presigned URLs for get/put
 - cleanup old file versions in bucket
 
