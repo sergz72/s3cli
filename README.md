@@ -1,4 +1,4 @@
-# Simple S3 service console client that can run limited set of S3 service commands
+# Simple Storage Service console client that can run limited set of S3 commands
 
 ## Features:
 - Copy from/to cloud or local file copy with optional file encryption
