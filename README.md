@@ -47,5 +47,5 @@ host=<br>
 region=<br>
 access_key=<br>
 access_secret=<br>
-encryption_key=this is an optional field with 32 byte key encoded with base64. when encryption_key is present - cloud files will automaticaly encrypted/decrypted during copy
+encryption_key=this is an optional field with 32 byte key encoded with base64. When encryption_key is present - cloud files will automaticaly encrypted/decrypted during copy
 
