@@ -63,6 +63,31 @@ struct IsTruncated {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Prefix {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct KeyMarker {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct NextVersionIdMarker {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct VersionIdMarker {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+struct Delimiter {
+
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 enum ObjectDetail {
     #[serde(rename = "Version")]
     ObjectVersion(ObjectVersion),
@@ -72,6 +97,11 @@ enum ObjectDetail {
     NameMarker(NameMarker),
     MaxKeys(MaxKeys),
     IsTruncated(IsTruncated),
+    Prefix(Prefix),
+    KeyMarker(KeyMarker),
+    NextVersionIdMarker(NextVersionIdMarker),
+    VersionIdMarker(NextVersionIdMarker),
+    Delimiter(Delimiter)
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
