@@ -17,8 +17,12 @@ use serde_xml_rs::from_str;
 struct BucketContents {
     #[serde(rename = "Key")]
     key: String,
+    #[serde(rename = "LastModified")]
+    last_modified: String,
     #[serde(rename = "Size")]
-    size: u64
+    size: u64,
+    #[serde(rename = "StorageClass")]
+    storage_class: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -36,7 +40,9 @@ struct ObjectVersion {
     #[serde(rename = "LastModified")]
     last_modified: String,
     #[serde(rename = "Size")]
-    size: u64
+    size: u64,
+    #[serde(rename = "StorageClass")]
+    storage_class: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -113,14 +119,14 @@ struct ListObjectVersions {
 impl ListBucketResult {
     fn print(&self) {
         for content in &self.contents {
-            println!("{} {}", content.key, content.size);
+            println!("{} {} {} {}", content.key, content.last_modified, content.size, content.storage_class);
         }
     }
 }
 
 impl ObjectVersion {
     fn print(&self) {
-        println!("{} {} {} {}", self.key, self.version_id, self.last_modified, self.size)
+        println!("{} {} {} {} {}", self.key, self.version_id, self.last_modified, self.size, self.storage_class)
     }
 }
 
@@ -140,7 +146,9 @@ struct CommandParameters {
     dry_run: bool,
     decrypt: bool,
     from_part: u64,
-    verbose: bool
+    verbose: bool,
+    from: Option<String>,
+    storage_class: Option<String>
 }
 
 struct LocalFile {
@@ -228,7 +236,7 @@ impl LocalFile {
 
 fn usage() {
     println!("Usage: s3cli
-    [--dry-run][--decrypt][--from-part][--verbose]
+    [--dry-run][--decrypt][--from-part=part_no][--verbose][--from=source_name] [--storage-class=name]
     [cp source_file_name destination_file_name]
     [ls remote_name:path]
     [versions remote_name:path]
@@ -313,7 +321,22 @@ fn main() -> Result<(), Error> {
         let config = build_key_parameters(fs::read("configuration.ini")?)?;
         match arguments[0].as_str() {
             "cp" => {
-                if l != 3 {
+                if l == 2 {
+                    let (source_remote_file, source_file_name) = parse_file_name(&arguments[1], &config)?;
+                    match source_remote_file {
+                        Some(remote_file) => {
+                            let parameters = build_parameters(&remote_file)?;
+                            let key_info = build_key_info_from_parameters(&remote_file, &parameters)?;
+                            let command_parameters =
+                                build_command_parameters(config, parameters, options)?;
+                            match command_parameters.from.clone() {
+                                Some(from) => run_cp_command(key_info, source_file_name, from, command_parameters)?,
+                                None => return Err(Error::new(ErrorKind::InvalidData, "from parameter is missing"))
+                            }
+                        },
+                        None => return Err(Error::new(ErrorKind::InvalidData, "source file name format is invalid"))
+                    }
+                } else if l != 3 {
                     usage()
                 } else {
                     let (source_remote_file, source_file_name) = parse_file_name(&arguments[1], &config)?;
@@ -466,7 +489,19 @@ fn build_command_parameters(config: HashMap<String, String>, parameters: HashMap
         .map(|s| s.parse::<u64>())
         .unwrap_or(Ok(0))
         .map_err(|s| Error::new(ErrorKind::InvalidInput, s))?;
-    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt, from_part, verbose})
+    let storage_class = options.get("storage-class")
+        .or(parameters.get("storage-class"))
+        .or(config.get("storage-class"))
+        .map(|v|v.clone());
+    if let Some(storage_class) = &storage_class {
+        println!("Storage class {}", storage_class);
+    }
+    let from = options.get("from").map(|v|v.clone());
+    if let Some(from) = &from {
+        println!("From {}", from);
+    }
+    Ok(CommandParameters{crypto_processor, max_file_size, dry_run, decrypt, from_part, verbose,
+                            storage_class, from})
 }
 
 fn parse_size(size_string: &String) -> Result<u64, Error> {
@@ -535,12 +570,39 @@ fn run_get_command(key_info: Box<dyn KeyInfo>, remote_file: &String, local_file:
                 let request_info = key_info.build_request_info("GET",
                                                                chrono::Utc::now(), &Vec::new(),
                                                                &format!("{}/{}", bucket, file.key),
-                                                               "".to_string())?;
+                                                               "".to_string(), &HashMap::new())?;
                 let data = request_info.make_request(None)?;
                 let decrypted = parameters.crypto_processor.decrypt(data)?;
                 f.write_all(&decrypted)?;
             }
         }
+    }
+    Ok(())
+}
+
+fn build_headers(parameters: &CommandParameters) -> HashMap<String, String> {
+    let mut headers = HashMap::new();
+    if let Some(storage_class) = &parameters.storage_class {
+        headers.insert("x-amz-storage-class".to_string(), storage_class.clone());
+    }
+    headers
+}
+
+fn run_cp_command(key_info: Box<dyn KeyInfo>, remote_file: String, from: String,
+                   parameters: CommandParameters) -> Result<(), Error> {
+    let mut headers = build_headers(&parameters);
+    let dry_run = parameters.dry_run;
+    let from = parameters.from.unwrap();
+    headers.insert("x-amz-copy-source".to_string(), from);
+    if !dry_run {
+        let request_info = key_info.build_request_info("PUT",
+                                                       chrono::Utc::now(), &Vec::new(),
+                                                       &remote_file, "".to_string(), &headers)?;
+        let data = request_info.make_request(Some(Vec::new()))
+            .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        let text = String::from_utf8(data)
+            .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        println!("{}", text);
     }
     Ok(())
 }
@@ -563,6 +625,7 @@ fn run_put_url_command(key_info: Box<dyn KeyInfo>, remote_file: &String) -> Resu
 
 fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: String,
                    parameters: CommandParameters) -> Result<(), Error> {
+    let headers = build_headers(&parameters);
     let dry_run = parameters.dry_run;
     let from_part = parameters.from_part;
     let mut file = LocalFile::open(local_file, parameters)?;
@@ -571,7 +634,7 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
         if !dry_run {
             let request_info = key_info.build_request_info("PUT",
                                                            chrono::Utc::now(), &part,
-                                                           &file_name, "".to_string())?;
+                                                           &file_name, "".to_string(), &headers)?;
             let data = request_info.make_request(Some(part))?;
             let text = String::from_utf8(data)
                 .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
@@ -584,7 +647,7 @@ fn run_put_command(key_info: Box<dyn KeyInfo>, local_file: String, remote_file: 
 fn ls(key_info: &Box<dyn KeyInfo>, path: &String) -> Result<ListBucketResult, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
-                                                   &Vec::new(), path, "".to_string())?;
+                                                   &Vec::new(), path, "".to_string(), &HashMap::new())?;
     let data = request_info.make_request(None)?;
     let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
@@ -602,7 +665,8 @@ fn versions(key_info: &Box<dyn KeyInfo>, path: &String, parameters: &CommandPara
     -> Result<ListObjectVersions, Error> {
     let request_info = key_info.build_request_info("GET",
                                                    chrono::Utc::now(),
-                                                   &Vec::new(), &path, "versions".to_string())?;
+                                                   &Vec::new(), &path, "versions".to_string(),
+                                                   &HashMap::new())?;
     let data = request_info.make_request(None)?;
     let contents = String::from_utf8(data)
         .map_err(|e|Error::new(ErrorKind::InvalidData, e.to_string()))?;
@@ -625,7 +689,9 @@ fn run_delete_version_command(key_info: &Box<dyn KeyInfo>, path: &String, versio
     if !parameters.dry_run {
         let request_info = key_info.build_request_info("DELETE",
                                                        chrono::Utc::now(),
-                                                       &Vec::new(), &path, "versionId=".to_string() + version.as_str())?;
+                                                       &Vec::new(), &path, 
+                                                       "versionId=".to_string() + version.as_str(),
+                                                        &HashMap::new())?;
         let data = request_info.make_request(None)?;
         let contents = String::from_utf8(data)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
